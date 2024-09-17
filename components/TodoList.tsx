@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Card,
   CardContent,
@@ -13,18 +13,77 @@ import { Button } from "./ui/button";
 import TodoItem from "./TodoItem";
 import { Input } from "./ui/input";
 
+import { getSupabaseClient } from "@/config/config";
+import { Skeleton } from "./ui/skeleton";
+
+const supabase = getSupabaseClient();
+
 const TodoList = () => {
-  const [todos, setTodos] = useState([2]);
+  const [todos, setTodos] = useState<TODO[]>([]);
 
   const [showNewTaskDialog, setShowNewTaskDialog] = useState(false);
   const [newTaskText, setNewTaskText] = useState("");
 
-  const addNewTask = () => {};
+  const [isFetching, setIsFetching] = useState(true);
+  const [fetchError, setFetchError] = useState("");
+  const [reFetch, setRefetch] = useState(false);
 
-  const onClickDeleteHandler = (id: string) => {};
-  const onClickDoneHandler = (id: string) => {};
+  useEffect(() => {
+    const fetchTodos = async () => {
+      const { data, error } = await supabase.from("Tasks").select();
+      setIsFetching(false);
+      if (error) {
+        setFetchError("Could not fetch tasks");
+        setTodos([]);
+        console.log(error);
+      }
 
-  const onClickAddNewTaskHandler = (text: string) => {};
+      if (data) {
+        console.log("fetched tasks", data);
+        let sortedData = data.slice();
+        sortedData = sortedData.sort((item1,item2)=>{
+          return item2.id - item1.id; 
+        })
+        setTodos(sortedData);
+        setFetchError("");
+      }
+    };
+
+    setIsFetching(true);
+    fetchTodos();
+  }, [reFetch]);
+
+  //this will add a task to the actual supabase db
+  const addNewTask = async (desc: string) => {
+    // no error handling for now
+    await supabase.from("Tasks").insert([
+      {
+        status: "PENDING",
+        task: desc,
+      },
+    ]);
+
+    setRefetch((prev) => !prev);
+  };
+
+  const onClickDeleteHandler = async (id: number) => {
+    setIsFetching(true)
+    await supabase.from("Tasks").delete().eq("id",id);
+    setRefetch((prev) => !prev);
+  };
+  const onClickDoneHandler = async (id: number) => {
+    setIsFetching(true)
+    await supabase.from("Tasks").update({status:"COMPLETED"}).eq("id",id);
+    setRefetch((prev) => !prev);
+  };
+
+  const onClickAddNewTaskHandler = () => {
+    // no need to validate since btn will be disabled if its empty
+    addNewTask(newTaskText);
+
+    setNewTaskText("");
+    setShowNewTaskDialog(false);
+  };
 
   const onNewTaskTextChangeHandler = (
     e: React.ChangeEvent<HTMLInputElement>
@@ -32,28 +91,33 @@ const TodoList = () => {
     setNewTaskText(e.target.value);
   };
 
-  // if (!todos || todos.length == 0) {
-  //   return (
-  // <div>
-  //   <Card className="max-w-[560px] mx-auto">
-  //     <CardHeader>
-  //       <CardTitle className="font-semibold">
-  //         You have no upcoming tasks
-  //       </CardTitle>
-  //       <CardDescription>
-  //         Add a new task to keep track of it
-  //       </CardDescription>
-  //     </CardHeader>
+  if (fetchError) {
+    return (
+      <div>
+        <Card className="max-w-[560px] mx-auto bg-destructive">
+          <CardHeader>
+            <CardTitle className="font-semibold text-center text-destructive-foreground">
+              Something went
+            </CardTitle>
+            <CardDescription className="text-center text-destructive-foreground">
+              Could not fetch tasks from database
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
-  //     <CardFooter>
-  //       <Button onClick={()=>{
-  //         setShowNewTaskDialog(true)
-  //       }} className="w-full">Add A New Task</Button>
-  //     </CardFooter>
-  //   </Card>
-  // </div>
-  //   );
-  // }
+  if (isFetching) {
+    return (
+      <div className="">
+        <Skeleton className="py-6 w-full max-w-[768px] bg-slate-300 mx-auto" />
+        <Skeleton className="my-3 py-6 w-full max-w-[768px] bg-slate-300 mx-auto" />
+        <Skeleton className="my-3 py-6 w-full max-w-[768px] bg-slate-300 mx-auto" />
+        <Skeleton className="my-3 py-6 w-full max-w-[768px] bg-slate-300 mx-auto" />
+      </div>
+    );
+  }
 
   return (
     <>
@@ -99,12 +163,16 @@ const TodoList = () => {
           <div className="mt-4">
             {todos.map((item, ind) => {
               return (
-                <TodoItem
-                  key={ind}
-                  id={ind.toString()}
-                  onClickDelete={onClickDeleteHandler}
-                  onClickDone={onClickDoneHandler}
-                />
+                <div key={item.id} className="my-3">
+                  <TodoItem
+                    id={item.id}
+                    status={item.status}
+                    desc={item.task}
+                    completed={item.status?.toLowerCase() == "completed"}
+                    onClickDelete={onClickDeleteHandler}
+                    onClickDone={onClickDoneHandler}
+                  />
+                </div>
               );
             })}
           </div>
@@ -128,6 +196,7 @@ const TodoList = () => {
               <Button
                 className="mt-6 w-full"
                 disabled={newTaskText.length == 0}
+                onClick={onClickAddNewTaskHandler}
               >
                 Add
               </Button>
@@ -147,5 +216,12 @@ const TodoList = () => {
     </>
   );
 };
+
+interface TODO {
+  id: number;
+  status: string;
+  task: string;
+  created_at: Date;
+}
 
 export default TodoList;
